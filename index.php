@@ -1,3 +1,24 @@
+<?php
+// ============================================================
+// index.php · tablero de eventos (la "R" de CRUD: leer de MySQL)
+// ============================================================
+function e($texto) { return htmlspecialchars((string)$texto, ENT_QUOTES, 'UTF-8'); }
+
+$categorias = ['trabajo' => 'Trabajo', 'personal' => 'Personal', 'estudio' => 'Estudio', 'ocio' => 'Ocio'];
+$eventos = [];
+
+require_once 'conexion.php';
+try {
+  $res = $mysqli->query("SELECT id, titulo, fecha, hora, categoria, descripcion
+                         FROM eventos ORDER BY fecha, hora");
+  while ($fila = $res->fetch_assoc()) { $eventos[] = $fila; }
+} catch (mysqli_sql_exception $ex) {
+  $eventos = [];
+}
+
+$total = count($eventos);
+$guardado = (($_GET['ok'] ?? '') === '1');
+?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -16,7 +37,7 @@
       document.documentElement.setAttribute("data-theme", t);
     })();
   </script>
-  <link rel="stylesheet" href="estilos.css">
+  <link rel="stylesheet" href="css/estilos.css">
 </head>
 <body class="layout">
 
@@ -38,80 +59,60 @@
 
   <main class="contenedor">
 
-    <!-- En P4 solo aparecerá si la URL trae ?ok=1 -->
+    <?php if ($guardado): ?>
+    <!-- Solo aparece si la URL trae ?ok=1 -->
     <div class="alert alert--ok" role="status">&#9989; Evento guardado.</div>
+    <?php endif; ?>
 
     <div class="page__header">
       <div>
         <h1 class="page__title">Mis eventos</h1>
-        <p class="page__subtitle">3 eventos registrados</p>
+        <p class="page__subtitle"><?= $total ?> <?= $total === 1 ? 'evento registrado' : 'eventos registrados' ?></p>
       </div>
       <a href="registrar.php" class="btn-primary">+ Nuevo evento</a>
     </div>
 
+    <?php if ($total > 0): ?>
     <section class="card-list">
 
-      <!-- ▼ INICIO de UN evento (en P4 se repetirá con foreach) -->
+      <?php foreach ($eventos as $ev):
+        $tieneHora = !empty($ev['hora']);
+        $hora      = $tieneHora ? substr($ev['hora'], 0, 5) : '';
+        $fechaObj  = DateTime::createFromFormat('Y-m-d', (string)$ev['fecha']);
+        $fechaTxt  = $fechaObj ? $fechaObj->format('d/m/Y') : '';
+        $datetime  = $fechaObj ? ($ev['fecha'] . ($tieneHora ? 'T' . $hora : '')) : '';
+        $catTxt    = $categorias[$ev['categoria']] ?? ucfirst((string)$ev['categoria']);
+      ?>
+      <!-- ▼ INICIO de UN evento (se repite con foreach) -->
       <article class="card">
-        <span class="card__badge">Trabajo</span>
-        <h2 class="card__title">Reunión de academia</h2>
+        <span class="card__badge"><?= e($catTxt) ?></span>
+        <h2 class="card__title"><?= e($ev['titulo']) ?></h2>
         <p class="card__meta">
-          <time datetime="2026-09-25T10:30">25/09/2026 · 10:30</time>
+          <time datetime="<?= e($datetime) ?>"><?= e($fechaTxt) ?><?= $tieneHora ? ' · ' . e($hora) : '' ?></time>
         </p>
-        <p class="card__text">Revisar calificaciones del 1er parcial.</p>
+        <?php if (!empty($ev['descripcion'])): ?>
+        <p class="card__text"><?= e($ev['descripcion']) ?></p>
+        <?php endif; ?>
 
         <div class="card__actions">
-          <a href="editar.php?id=1" class="btn-secondary btn-sm">Editar</a>
+          <a href="editar.php?id=<?= (int)$ev['id'] ?>" class="btn-secondary btn-sm">Editar</a>
           <form method="post" action="borrar.php" class="form-inline">
-            <input type="hidden" name="id" value="1">
+            <input type="hidden" name="id" value="<?= (int)$ev['id'] ?>">
             <button type="submit" class="btn-danger btn-sm">Borrar</button>
           </form>
         </div>
       </article>
       <!-- ▲ FIN de un evento -->
-
-      <!-- Evento 2: sin descripción -->
-      <article class="card">
-        <span class="card__badge">Personal</span>
-        <h2 class="card__title">Cita con el dentista</h2>
-        <p class="card__meta">
-          <time datetime="2026-09-28T16:00">28/09/2026 · 16:00</time>
-        </p>
-
-        <div class="card__actions">
-          <a href="editar.php?id=2" class="btn-secondary btn-sm">Editar</a>
-          <form method="post" action="borrar.php" class="form-inline">
-            <input type="hidden" name="id" value="2">
-            <button type="submit" class="btn-danger btn-sm">Borrar</button>
-          </form>
-        </div>
-      </article>
-
-      <!-- Evento 3: sin hora y con título largo -->
-      <article class="card">
-        <span class="card__badge">Escuela</span>
-        <h2 class="card__title">Entrega del proyecto final de Desarrollo de Aplicaciones Web con presentación al grupo</h2>
-        <p class="card__meta">
-          <time datetime="2026-10-02">02/10/2026</time>
-        </p>
-        <p class="card__text">Subir el repositorio y publicar en DomCloud.</p>
-
-        <div class="card__actions">
-          <a href="editar.php?id=3" class="btn-secondary btn-sm">Editar</a>
-          <form method="post" action="borrar.php" class="form-inline">
-            <input type="hidden" name="id" value="3">
-            <button type="submit" class="btn-danger btn-sm">Borrar</button>
-          </form>
-        </div>
-      </article>
+      <?php endforeach; ?>
 
     </section>
-
-    <!-- En P4 solo aparecerá si no hay eventos -->
+    <?php else: ?>
+    <!-- Solo aparece si no hay eventos -->
     <div class="empty-state">
       <p>Aún no tienes eventos registrados.</p>
       <a href="registrar.php" class="btn-primary">Registrar el primero</a>
     </div>
+    <?php endif; ?>
 
   </main>
 

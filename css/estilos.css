@@ -1,3 +1,9 @@
+/* ==========================================================
+   AgendaWeb · estilos.css  (una sola hoja para todo el sitio)
+   Mismos estilos que tu index.html original
+   ========================================================== */
+
+/* ---------- Variables de marca ---------- */
 :root {
   --color-fondo: #F5F8F7;
   --color-superficie: #FFFFFF;
@@ -174,6 +180,10 @@ main.contenedor { padding: 2rem 0 3rem; }
 }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ==========================================================
+   Para registrar.php: estilos de formulario de tu index.html
+   ========================================================== */
 .tarjeta {
   background: var(--color-superficie); border: 1px solid var(--color-borde);
   border-radius: var(--radio); box-shadow: var(--sombra-suave); padding: 1.5rem;
@@ -218,6 +228,9 @@ main.contenedor { padding: 2rem 0 3rem; }
 }
 .boton--secundario:hover { background: var(--color-acento-suave); }
 
+/* ==========================================================
+   Pantalla de registro con calendario y lista (registrar.php)
+   ========================================================== */
 .introduccion { margin-bottom: 2rem; max-width: 60ch; }
 .introduccion h1 { font-size: clamp(1.6rem, 4vw, 2.2rem); margin-bottom: 0.5rem; }
 .introduccion p { margin: 0; color: var(--color-texto-secundario); }
@@ -280,3 +293,12 @@ main.contenedor { padding: 2rem 0 3rem; }
 .evento__notas { margin: 0.2rem 0 0; color: var(--color-texto-secundario); font-size: 0.925rem; overflow-wrap: anywhere; }
 .vacio { text-align: center; padding: 1.5rem 1rem; color: var(--color-texto-secundario); }
 .vacio strong { display: block; color: var(--color-texto); font-family: var(--fuente-titulos); margin-bottom: 0.25rem; }
+
+/* ---------- Mensajes de validación (P3) ---------- */
+.campo__error { margin: 0.35rem 0 0; font-size: 0.875rem; font-weight: 600; color: var(--color-peligro); }
+.campo--error input, .campo--error select, .campo--error textarea { border-color: var(--color-peligro); }
+.alert--error { border-left-color: var(--color-peligro); color: var(--color-peligro); }
+
+/* Días pasados del calendario (no seleccionables) */
+.cal__celda:disabled { opacity: 0.35; cursor: not-allowed; }
+.cal__celda:disabled:hover { background: transparent; }

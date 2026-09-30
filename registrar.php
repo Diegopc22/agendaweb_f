@@ -1,3 +1,105 @@
+<?php
+// ============================================================
+// registrar.php · formulario + procesamiento (se envía a sí mismo)
+// Flujo: recibir (POST) → validar → guardar (MySQL) → redirigir (PRG)
+// IMPORTANTE: no imprimir nada antes de header().
+// ============================================================
+
+function e($texto) { return htmlspecialchars((string)$texto, ENT_QUOTES, 'UTF-8'); }
+
+// Zona horaria de referencia para "hoy" y "ahora" (el servidor puede estar en UTC)
+date_default_timezone_set('America/Mexico_City');
+$hoyServidor   = date('Y-m-d');
+$ahoraServidor = date('H:i');
+
+$titulo = $fecha = $hora = $categoria = $descripcion = '';
+$errores = [];
+$categoriasOK = ['trabajo' => 'Trabajo', 'personal' => 'Personal', 'estudio' => 'Estudio', 'ocio' => 'Ocio'];
+
+// ---------- Fase 3 · Recibir ----------
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  $titulo      = trim($_POST['titulo']      ?? '');
+  $fecha       = trim($_POST['fecha']       ?? '');
+  $hora        = trim($_POST['hora']        ?? '');
+  $categoria   = trim($_POST['categoria']   ?? '');
+  $descripcion = trim($_POST['descripcion'] ?? '');
+
+  // ---------- Fase 4 · Validar ----------
+  if ($titulo === '')
+    $errores['titulo'] = 'El título es obligatorio.';
+  elseif (mb_strlen($titulo) > 120)
+    $errores['titulo'] = 'Máximo 120 caracteres.';
+
+  if ($fecha === '')
+    $errores['fecha'] = 'La fecha es obligatoria.';
+  else {
+    $f = DateTime::createFromFormat('Y-m-d', $fecha);
+    if (!$f || $f->format('Y-m-d') !== $fecha)
+      $errores['fecha'] = 'La fecha no es válida.';
+    elseif ($fecha < $hoyServidor)
+      $errores['fecha'] = 'La fecha no puede ser anterior a hoy.';
+  }
+
+  if ($hora !== '') {
+    $h = DateTime::createFromFormat('H:i', $hora);
+    if (!$h || $h->format('H:i') !== $hora)
+      $errores['hora'] = 'La hora no es válida.';
+    elseif ($fecha === $hoyServidor && $hora < $ahoraServidor)
+      $errores['hora'] = 'La hora ya pasó. Elige una a partir de las ' . $ahoraServidor . '.';
+  }
+
+  if (!array_key_exists($categoria, $categoriasOK))
+    $errores['categoria'] = 'Elige una categoría válida.';
+
+  if (mb_strlen($descripcion) > 500)
+    $errores['descripcion'] = 'Máximo 500 caracteres.';
+
+  // ---------- Fase 6 · Guardar (consulta preparada) ----------
+  if (empty($errores)) {
+    require_once 'conexion.php';
+
+    $horaDB = ($hora === '') ? null : $hora;               // TIME acepta NULL
+    $descDB = ($descripcion === '') ? null : $descripcion;
+
+    try {
+      $sql = "INSERT INTO eventos (titulo, fecha, hora, categoria, descripcion)
+              VALUES (?, ?, ?, ?, ?)";
+      $stmt = $mysqli->prepare($sql);
+      $stmt->bind_param("sssss", $titulo, $fecha, $horaDB, $categoria, $descDB);
+      $stmt->execute();
+      $nuevoId = $stmt->insert_id;
+      $stmt->close();
+      $mysqli->close();
+
+      // ---------- Fase 7 · PRG ----------
+      header('Location: index.php?ok=1');
+      exit;
+    } catch (mysqli_sql_exception $ex) {
+      $errores['general'] = 'No se pudo guardar el evento. Intenta de nuevo.';
+    }
+  }
+}
+
+// ---------- Eventos ya guardados (para el calendario y la lista) ----------
+$eventosDB = [];
+if (file_exists(__DIR__ . '/conexion.php')) {
+  require_once 'conexion.php';
+  try {
+    $res = $mysqli->query("SELECT id, titulo, fecha, hora, categoria, descripcion
+                           FROM eventos ORDER BY fecha, hora LIMIT 500");
+    while ($r = $res->fetch_assoc()) {
+      $eventosDB[] = [
+        'id'        => (int)$r['id'],
+        'titulo'    => $r['titulo'],
+        'fecha'     => $r['fecha'],
+        'hora'      => $r['hora'] ? substr($r['hora'], 0, 5) : '',
+        'categoria' => $r['categoria'],
+        'notas'     => (string)$r['descripcion'],
+      ];
+    }
+  } catch (mysqli_sql_exception $ex) { /* la lista queda vacía */ }
+}
+?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -16,7 +118,7 @@
       document.documentElement.setAttribute("data-theme", t);
     })();
   </script>
-  <link rel="stylesheet" href="estilos.css">
+  <link rel="stylesheet" href="css/estilos.css">
 </head>
 <body class="layout">
 
@@ -46,23 +148,53 @@
 
       <section class="tarjeta" aria-labelledby="titulo-form">
         <h2 id="titulo-form">Nuevo evento</h2>
-        <form id="formulario">
-          <div class="campo">
+
+        <?php if (isset($errores['general'])): ?>
+          <div class="alert alert--error" role="alert"><?= e($errores['general']) ?></div>
+        <?php elseif (!empty($errores)): ?>
+          <div class="alert alert--error" role="alert">Revisa los campos marcados.</div>
+        <?php endif; ?>
+
+        <form method="post" action="" id="formulario">
+
+          <div class="campo <?= isset($errores['titulo']) ? 'campo--error' : '' ?>">
             <label for="titulo">Título</label>
-            <input id="titulo" name="titulo" type="text" placeholder="Ej. Cita con el dentista" required>
+            <input id="titulo" name="titulo" type="text" maxlength="120"
+                   placeholder="Ej. Cita con el dentista"
+                   value="<?= e($titulo) ?>" required>
+            <?php if (isset($errores['titulo'])): ?><p class="campo__error"><?= e($errores['titulo']) ?></p><?php endif; ?>
           </div>
-          <div class="campo">
+
+          <div class="campo <?= isset($errores['categoria']) ? 'campo--error' : '' ?>">
+            <label for="categoria">Categoría</label>
+            <select id="categoria" name="categoria" required>
+              <option value="">Elige una categoría…</option>
+              <?php foreach ($categoriasOK as $valor => $texto): ?>
+                <option value="<?= e($valor) ?>" <?= $categoria === $valor ? 'selected' : '' ?>><?= e($texto) ?></option>
+              <?php endforeach; ?>
+            </select>
+            <?php if (isset($errores['categoria'])): ?><p class="campo__error"><?= e($errores['categoria']) ?></p><?php endif; ?>
+          </div>
+
+          <div class="campo <?= isset($errores['fecha']) ? 'campo--error' : '' ?>">
             <label for="fecha">Fecha</label>
-            <input id="fecha" name="fecha" type="date" required>
+            <input id="fecha" name="fecha" type="date" min="<?= e($hoyServidor) ?>" value="<?= e($fecha) ?>" required>
+            <?php if (isset($errores['fecha'])): ?><p class="campo__error"><?= e($errores['fecha']) ?></p><?php endif; ?>
           </div>
-          <div class="campo">
-            <label for="hora">Hora</label>
-            <input id="hora" name="hora" type="time" required>
+
+          <div class="campo <?= isset($errores['hora']) ? 'campo--error' : '' ?>">
+            <label for="hora">Hora (opcional)</label>
+            <input id="hora" name="hora" type="time" value="<?= e($hora) ?>">
+            <?php if (isset($errores['hora'])): ?><p class="campo__error"><?= e($errores['hora']) ?></p><?php endif; ?>
           </div>
-          <div class="campo">
-            <label for="notas">Notas (opcional)</label>
-            <textarea id="notas" name="notas" placeholder="Lugar, recordatorios…"></textarea>
+
+          <div class="campo <?= isset($errores['descripcion']) ? 'campo--error' : '' ?>">
+            <label for="descripcion">Descripción (opcional)</label>
+            <textarea id="descripcion" name="descripcion" maxlength="500"
+                      placeholder="Lugar, recordatorios…"><?= e($descripcion) ?></textarea>
+            <?php if (isset($errores['descripcion'])): ?><p class="campo__error"><?= e($errores['descripcion']) ?></p><?php endif; ?>
           </div>
+
           <div class="acciones">
             <button class="boton boton--bloque" type="submit">Guardar evento</button>
             <a class="boton boton--bloque boton--secundario" href="index.php">Cancelar</a>
@@ -100,7 +232,9 @@
   </footer>
 
   <script>
-    const CLAVE = "agendaweb:eventos";
+    // Eventos guardados en MySQL (solo lectura: el calendario y la lista los muestran)
+    const eventos = <?= json_encode($eventosDB, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+
     const $ = id => document.getElementById(id);
     const pad = n => String(n).padStart(2, "0");
     const aTexto = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;
@@ -109,10 +243,6 @@
     const hoyTxt = aTexto(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
     let vista = { y: hoy.getFullYear(), m: hoy.getMonth() };
     let seleccionado = null;
-    let eventos = [];
-
-    function cargar() { try { eventos = JSON.parse(localStorage.getItem(CLAVE)) || []; } catch (e) { eventos = []; } }
-    function guardar() { try { localStorage.setItem(CLAVE, JSON.stringify(eventos)); } catch (e) {} }
 
     function el(tag, clase, texto) {
       const n = document.createElement(tag);
@@ -153,6 +283,7 @@
         if (conEvento.has(f)) clase += " cal__celda--evento";
         const b = el("button", clase, String(d));
         b.type = "button";
+        if (f < hoyTxt) b.disabled = true;   // no se pueden elegir días pasados
         b.setAttribute("aria-pressed", f === seleccionado ? "true" : "false");
         b.setAttribute("aria-label", nombreDia(f) + (conEvento.has(f) ? ", con eventos" : ""));
         b.addEventListener("click", () => {
@@ -178,7 +309,7 @@
       $("verTodos").hidden = !seleccionado;
 
       let visibles = seleccionado ? eventos.filter(e => e.fecha === seleccionado) : eventos.filter(e => e.fecha >= hoyTxt);
-      visibles = [...visibles].sort((a, b) => (a.fecha + a.hora).localeCompare(b.fecha + b.hora));
+      visibles = [...visibles].sort((a, b) => (a.fecha + (a.hora || "")).localeCompare(b.fecha + (b.hora || "")));
 
       if (visibles.length === 0) {
         const v = el("div", "vacio");
@@ -195,16 +326,11 @@
         dia.append(el("h3", "", nombreDia(f)));
         porDia[f].forEach(ev => {
           const item = el("article", "evento");
-          item.append(el("div", "evento__hora", ev.hora));
+          item.append(el("div", "evento__hora", ev.hora || "Sin hora"));
           const cuerpo = el("div", "evento__cuerpo");
           cuerpo.append(el("p", "evento__titulo", ev.titulo));
           if (ev.notas) cuerpo.append(el("p", "evento__notas", ev.notas));
           item.append(cuerpo);
-          const borrar = el("button", "boton boton--suave", "Eliminar");
-          borrar.type = "button";
-          borrar.setAttribute("aria-label", "Eliminar evento " + ev.titulo);
-          borrar.addEventListener("click", () => { eventos = eventos.filter(x => x.id !== ev.id); guardar(); pintar(); });
-          item.append(borrar);
           dia.append(item);
         });
         lista.append(dia);
@@ -213,26 +339,25 @@
 
     function pintar() { pintarCalendario(); pintarLista(); }
 
-    $("formulario").addEventListener("submit", e => {
-      e.preventDefault();
-      const d = new FormData(e.target);
-      const fecha = d.get("fecha");
-      eventos.push({
-        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-        titulo: d.get("titulo").trim(), fecha, hora: d.get("hora"), notas: d.get("notas").trim()
-      });
-      guardar();
-      const [y, m] = fecha.split("-").map(Number);
-      vista = { y, m: m - 1 };
-      seleccionado = fecha;
-      e.target.reset();
-      $("fecha").value = fecha;
-      pintar();
-      $("titulo").focus();
-    });
+    // ---- Restricción: no permitir fecha ni hora anteriores a este momento ----
+    function ajustarMinimos() {
+      const ahora = new Date();
+      const hoyLocal = aTexto(ahora.getFullYear(), ahora.getMonth(), ahora.getDate());
+      const horaLocal = pad(ahora.getHours()) + ":" + pad(ahora.getMinutes());
+      $("fecha").min = hoyLocal;
+      if ($("fecha").value === hoyLocal) {
+        $("hora").min = horaLocal;                       // hoy: desde la hora actual
+      } else {
+        $("hora").removeAttribute("min");                // otro día: cualquier hora
+      }
+    }
+    $("fecha").addEventListener("change", ajustarMinimos);
+    $("hora").addEventListener("focus", ajustarMinimos);
+    setInterval(ajustarMinimos, 30000);   // mantiene vigente el mínimo mientras pasa el tiempo
 
-    cargar();
-    $("fecha").value = hoyTxt;
+    // Si el formulario volvió con errores, conserva la fecha escrita; si no, usa hoy
+    $("fecha").value = <?= json_encode($fecha) ?> || hoyTxt;
+    ajustarMinimos();
     actualizarBotonTema();
     pintar();
   </script>
