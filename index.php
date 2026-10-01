@@ -1,7 +1,4 @@
 <?php
-// ============================================================
-// index.php · tablero de eventos (la "R" de CRUD: leer de MySQL)
-// ============================================================
 function e($texto) { return htmlspecialchars((string)$texto, ENT_QUOTES, 'UTF-8'); }
 
 $categorias = ['trabajo' => 'Trabajo', 'personal' => 'Personal', 'estudio' => 'Estudio', 'ocio' => 'Ocio'];
@@ -9,8 +6,7 @@ $eventos = [];
 
 require_once 'conexion.php';
 try {
-  $res = $mysqli->query("SELECT id, titulo, fecha, hora, categoria, descripcion
-                         FROM eventos ORDER BY fecha, hora");
+  $res = $mysqli->query("SELECT id, titulo, fecha, hora, categoria, descripcion FROM eventos ORDER BY fecha, hora");
   while ($fila = $res->fetch_assoc()) { $eventos[] = $fila; }
 } catch (mysqli_sql_exception $ex) {
   $eventos = [];
@@ -58,12 +54,9 @@ $guardado = (($_GET['ok'] ?? '') === '1');
   </header>
 
   <main class="contenedor">
-
     <?php if ($guardado): ?>
-    <!-- Solo aparece si la URL trae ?ok=1 -->
     <div class="alert alert--ok" role="status">&#9989; Evento guardado.</div>
     <?php endif; ?>
-
     <div class="page__header">
       <div>
         <h1 class="page__title">Mis eventos</h1>
@@ -71,10 +64,8 @@ $guardado = (($_GET['ok'] ?? '') === '1');
       </div>
       <a href="registrar.php" class="btn-primary">+ Nuevo evento</a>
     </div>
-
     <?php if ($total > 0): ?>
     <section class="card-list">
-
       <?php foreach ($eventos as $ev):
         $tieneHora = !empty($ev['hora']);
         $hora      = $tieneHora ? substr($ev['hora'], 0, 5) : '';
@@ -83,7 +74,6 @@ $guardado = (($_GET['ok'] ?? '') === '1');
         $datetime  = $fechaObj ? ($ev['fecha'] . ($tieneHora ? 'T' . $hora : '')) : '';
         $catTxt    = $categorias[$ev['categoria']] ?? ucfirst((string)$ev['categoria']);
       ?>
-      <!-- ▼ INICIO de UN evento (se repite con foreach) -->
       <article class="card">
         <span class="card__badge"><?= e($catTxt) ?></span>
         <h2 class="card__title"><?= e($ev['titulo']) ?></h2>
@@ -93,7 +83,6 @@ $guardado = (($_GET['ok'] ?? '') === '1');
         <?php if (!empty($ev['descripcion'])): ?>
         <p class="card__text"><?= e($ev['descripcion']) ?></p>
         <?php endif; ?>
-
         <div class="card__actions">
           <a href="editar.php?id=<?= (int)$ev['id'] ?>" class="btn-secondary btn-sm">Editar</a>
           <form method="post" action="borrar.php" class="form-inline">
@@ -102,24 +91,18 @@ $guardado = (($_GET['ok'] ?? '') === '1');
           </form>
         </div>
       </article>
-      <!-- ▲ FIN de un evento -->
       <?php endforeach; ?>
-
     </section>
     <?php else: ?>
-    <!-- Solo aparece si no hay eventos -->
     <div class="empty-state">
       <p>Aún no tienes eventos registrados.</p>
       <a href="registrar.php" class="btn-primary">Registrar el primero</a>
     </div>
     <?php endif; ?>
-
   </main>
-
   <footer class="site-footer">
     AgendaWeb · Diego Plascencia Camarena · 2026
   </footer>
-
   <script>
     (function () {
       var btn = document.getElementById("btnTema");

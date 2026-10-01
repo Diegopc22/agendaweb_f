@@ -1,9 +1,4 @@
 <?php
-// ============================================================
-// editar.php · formulario prellenado + UPDATE
-// GET  ?id=N → carga el evento y muestra el formulario
-// POST       → valida, actualiza y redirige a index.php?editado=1
-// ============================================================
 function e($texto) { return htmlspecialchars((string)$texto, ENT_QUOTES, 'UTF-8'); }
 
 date_default_timezone_set('America/Mexico_City');
@@ -13,7 +8,6 @@ $ahoraServidor = date('H:i');
 $categoriasOK = ['trabajo' => 'Trabajo', 'personal' => 'Personal', 'estudio' => 'Estudio', 'ocio' => 'Ocio'];
 $errores = [];
 
-// ---------- 1. Identificar el evento ----------
 $id = filter_var($_SERVER['REQUEST_METHOD'] === 'POST' ? ($_POST['id'] ?? '') : ($_GET['id'] ?? ''), FILTER_VALIDATE_INT);
 if ($id === false || $id < 1) {
   header('Location: index.php?error=1');
@@ -22,28 +16,25 @@ if ($id === false || $id < 1) {
 
 require_once 'conexion.php';
 
-// ---------- 2. Cargar el evento original ----------
 $stmt = $mysqli->prepare("SELECT titulo, fecha, hora, categoria, descripcion FROM eventos WHERE id = ?");
 $stmt->bind_param("i", $id);
 $stmt->execute();
 $orig = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
-if (!$orig) {                       // el evento no existe (o ya se borró)
+if (!$orig) {
   header('Location: index.php?error=1');
   exit;
 }
 $fechaOrig = (string)$orig['fecha'];
 $horaOrig  = $orig['hora'] ? substr($orig['hora'], 0, 5) : '';
 
-// Valores que se muestran: los originales o, si hubo POST, lo escrito
 $titulo      = $orig['titulo'];
 $fecha       = $fechaOrig;
 $hora        = $horaOrig;
 $categoria   = $orig['categoria'];
 $descripcion = (string)$orig['descripcion'];
 
-// ---------- 3. Recibir, validar y guardar ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $titulo      = trim($_POST['titulo']      ?? '');
   $fecha       = trim($_POST['fecha']       ?? '');
@@ -62,7 +53,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $f = DateTime::createFromFormat('Y-m-d', $fecha);
     if (!$f || $f->format('Y-m-d') !== $fecha)
       $errores['fecha'] = 'La fecha no es válida.';
-    // Solo se exige "no pasada" si el usuario CAMBIÓ la fecha
     elseif ($fecha !== $fechaOrig && $fecha < $hoyServidor)
       $errores['fecha'] = 'La fecha no puede ser anterior a hoy.';
   }
@@ -71,7 +61,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $h = DateTime::createFromFormat('H:i', $hora);
     if (!$h || $h->format('H:i') !== $hora)
       $errores['hora'] = 'La hora no es válida.';
-    // Solo se exige si el usuario CAMBIÓ la fecha u hora y el día es hoy
     elseif (($fecha !== $fechaOrig || $hora !== $horaOrig) && $fecha === $hoyServidor && $hora < $ahoraServidor)
       $errores['hora'] = 'La hora ya pasó. Elige una a partir de las ' . $ahoraServidor . '.';
   }
@@ -101,8 +90,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   }
 }
-
-// La fecha mínima del selector deja conservar una fecha original ya pasada
 $fechaMin = ($fechaOrig !== '' && $fechaOrig < $hoyServidor) ? $fechaOrig : $hoyServidor;
 ?>
 <!DOCTYPE html>

@@ -1,8 +1,4 @@
 <?php
-// ============================================================
-// borrar.php · elimina un evento (solo acepta POST)
-// Flujo: recibir id → validar → DELETE preparado → redirigir a index.php
-// ============================================================
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
   header('Location: index.php');
   exit;
