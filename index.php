@@ -1,19 +1,74 @@
 <?php
 function e($texto) { return htmlspecialchars((string)$texto, ENT_QUOTES, 'UTF-8'); }
 
-$categorias = ['trabajo' => 'Trabajo', 'personal' => 'Personal', 'estudio' => 'Estudio', 'ocio' => 'Ocio'];
-$eventos = [];
+function formatearFecha(string $fecha): string
+{
+    return date('d/m/Y', strtotime($fecha));
+}
+
+function nombreCategoria(string $clave): string
+{
+    $nombres = [
+        'trabajo'  => 'Trabajo',
+        'personal' => 'Personal',
+        'estudio'  => 'Estudio',
+        'ocio'     => 'Ocio / Deporte',
+    ];
+    return $nombres[$clave] ?? $clave;
+}
+
+function mostrarEvento(array $ev): string
+{
+    $html  = '<article class="card">';
+    $html .= '<span class="card__badge">' . e(nombreCategoria($ev['categoria'])) . '</span>';
+    $html .= '<h2 class="card__title">' . e($ev['titulo']) . '</h2>';
+
+    $cuando   = formatearFecha($ev['fecha']);
+    $datetime = $ev['fecha'];
+    if ($ev['hora']) {                                   
+        $hora      = substr($ev['hora'], 0, 5);          
+        $cuando   .= ' · ' . $hora;
+        $datetime .= 'T' . $hora;
+    }
+    $html .= '<p class="card__meta"><time datetime="' . e($datetime) . '">' . e($cuando) . '</time></p>';
+
+    if ($ev['descripcion']) {                            
+        $html .= '<p class="card__text">' . e($ev['descripcion']) . '</p>';
+    }
+
+    $id = (int) $ev['id'];                               
+    $html .= '<div class="card__actions">'
+           . '<a href="editar.php?id=' . $id . '" class="btn-secondary btn-sm">Editar</a>'
+           . '<form method="post" action="borrar.php" class="form-inline" '
+           . 'onsubmit="return confirm(\'¿Borrar este evento? Esta acción no se puede deshacer.\');">'
+           . '<input type="hidden" name="id" value="' . $id . '">'
+           . '<button type="submit" class="btn-danger btn-sm">Borrar</button>'
+           . '</form></div>';
+
+    return $html . '</article>';
+}
 
 require_once 'conexion.php';
 try {
-  $res = $mysqli->query("SELECT id, titulo, fecha, hora, categoria, descripcion FROM eventos ORDER BY fecha, hora");
-  while ($fila = $res->fetch_assoc()) { $eventos[] = $fila; }
+  $resultado = $mysqli->query(
+    'SELECT id, titulo, fecha, hora, categoria, descripcion
+       FROM eventos
+      ORDER BY fecha, hora'
+  );
+  $eventos = $resultado->fetch_all(MYSQLI_ASSOC);
 } catch (mysqli_sql_exception $ex) {
   $eventos = [];
 }
+$mysqli->close();
 
 $total = count($eventos);
-$guardado = (($_GET['ok'] ?? '') === '1');
+
+// ?ok=1 (guardado), ?editado=1, ?borrado=1, ?error=1
+$aviso = null; $avisoError = false;
+if (($_GET['ok'] ?? '') === '1')           $aviso = 'Evento guardado.';
+elseif (($_GET['editado'] ?? '') === '1')  $aviso = 'Evento actualizado.';
+elseif (($_GET['borrado'] ?? '') === '1')  $aviso = 'Evento eliminado.';
+elseif (($_GET['error'] ?? '') === '1')  { $aviso = 'No se pudo completar la acción.'; $avisoError = true; }
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -54,9 +109,11 @@ $guardado = (($_GET['ok'] ?? '') === '1');
   </header>
 
   <main class="contenedor">
-    <?php if ($guardado): ?>
-    <div class="alert alert--ok" role="status">&#9989; Evento guardado.</div>
+
+    <?php if ($aviso): ?>
+    <div class="alert <?= $avisoError ? 'alert--error' : 'alert--ok' ?>" role="<?= $avisoError ? 'alert' : 'status' ?>"><?= $avisoError ? '' : '&#9989; ' ?><?= e($aviso) ?></div>
     <?php endif; ?>
+
     <div class="page__header">
       <div>
         <h1 class="page__title">Mis eventos</h1>
@@ -64,45 +121,26 @@ $guardado = (($_GET['ok'] ?? '') === '1');
       </div>
       <a href="registrar.php" class="btn-primary">+ Nuevo evento</a>
     </div>
-    <?php if ($total > 0): ?>
-    <section class="card-list">
-      <?php foreach ($eventos as $ev):
-        $tieneHora = !empty($ev['hora']);
-        $hora      = $tieneHora ? substr($ev['hora'], 0, 5) : '';
-        $fechaObj  = DateTime::createFromFormat('Y-m-d', (string)$ev['fecha']);
-        $fechaTxt  = $fechaObj ? $fechaObj->format('d/m/Y') : '';
-        $datetime  = $fechaObj ? ($ev['fecha'] . ($tieneHora ? 'T' . $hora : '')) : '';
-        $catTxt    = $categorias[$ev['categoria']] ?? ucfirst((string)$ev['categoria']);
-      ?>
-      <article class="card">
-        <span class="card__badge"><?= e($catTxt) ?></span>
-        <h2 class="card__title"><?= e($ev['titulo']) ?></h2>
-        <p class="card__meta">
-          <time datetime="<?= e($datetime) ?>"><?= e($fechaTxt) ?><?= $tieneHora ? ' · ' . e($hora) : '' ?></time>
-        </p>
-        <?php if (!empty($ev['descripcion'])): ?>
-        <p class="card__text"><?= e($ev['descripcion']) ?></p>
-        <?php endif; ?>
-        <div class="card__actions">
-          <a href="editar.php?id=<?= (int)$ev['id'] ?>" class="btn-secondary btn-sm">Editar</a>
-          <form method="post" action="borrar.php" class="form-inline">
-            <input type="hidden" name="id" value="<?= (int)$ev['id'] ?>">
-            <button type="submit" class="btn-danger btn-sm">Borrar</button>
-          </form>
-        </div>
-      </article>
-      <?php endforeach; ?>
-    </section>
-    <?php else: ?>
+
+    <?php if (empty($eventos)): ?>
     <div class="empty-state">
       <p>Aún no tienes eventos registrados.</p>
       <a href="registrar.php" class="btn-primary">Registrar el primero</a>
     </div>
+    <?php else: ?>
+    <section class="card-list" aria-label="Lista de eventos">
+      <?php foreach ($eventos as $ev): ?>
+        <?= mostrarEvento($ev) ?>
+      <?php endforeach; ?>
+    </section>
     <?php endif; ?>
+
   </main>
+
   <footer class="site-footer">
     AgendaWeb · Diego Plascencia Camarena · 2026
   </footer>
+
   <script>
     (function () {
       var btn = document.getElementById("btnTema");
