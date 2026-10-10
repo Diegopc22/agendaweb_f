@@ -1,21 +1,37 @@
 <?php
+// ============================================================
+// registrar.php · formulario + procesamiento (se envía a sí mismo)
+// Flujo: recibir (POST) → validar → guardar (MySQL) → redirigir (PRG)
+// IMPORTANTE: no imprimir nada antes de header().
+// ============================================================
+
 function e($texto) { return htmlspecialchars((string)$texto, ENT_QUOTES, 'UTF-8'); }
 
+// Zona horaria de referencia para "hoy" y "ahora" (el servidor puede estar en UTC)
 date_default_timezone_set('America/Mexico_City');
 $hoyServidor   = date('Y-m-d');
 $ahoraServidor = date('H:i');
 
-$titulo = $fecha = $hora = $categoria = $descripcion = '';
+$titulo = $fecha = $hora = $descripcion = '';
+$categoriaId = 0;               // valor inicial del formulario
 $errores = [];
-$categoriasOK = ['trabajo' => 'Trabajo', 'personal' => 'Personal', 'estudio' => 'Estudio', 'ocio' => 'Ocio'];
 
+// Conexión (una sola vez) y categorías que salen de la base de datos
+require_once 'conexion.php';
+$resultado  = $mysqli->query('SELECT id, nombre FROM categorias ORDER BY nombre');
+$categorias = $resultado->fetch_all(MYSQLI_ASSOC);
+// La lista blanca también sale de la BD: [1, 2, 3, 4]
+$idsValidos = array_map('intval', array_column($categorias, 'id'));
+
+// ---------- Fase 3 · Recibir ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $titulo      = trim($_POST['titulo']      ?? '');
   $fecha       = trim($_POST['fecha']       ?? '');
   $hora        = trim($_POST['hora']        ?? '');
-  $categoria   = trim($_POST['categoria']   ?? '');
+  $categoriaId = (int) ($_POST['categoria_id'] ?? 0);
   $descripcion = trim($_POST['descripcion'] ?? '');
 
+  // ---------- Fase 4 · Validar ----------
   if ($titulo === '')
     $errores['titulo'] = 'El título es obligatorio.';
   elseif (mb_strlen($titulo) > 120)
@@ -39,28 +55,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $errores['hora'] = 'La hora ya pasó. Elige una a partir de las ' . $ahoraServidor . '.';
   }
 
-  if (!array_key_exists($categoria, $categoriasOK))
-    $errores['categoria'] = 'Elige una categoría válida.';
+  if (!in_array($categoriaId, $idsValidos, true))
+    $errores['categoria_id'] = 'Elige una categoría válida.';
 
   if (mb_strlen($descripcion) > 500)
     $errores['descripcion'] = 'Máximo 500 caracteres.';
 
+  // ---------- Fase 6 · Guardar (consulta preparada) ----------
   if (empty($errores)) {
-    require_once 'conexion.php';
-
-    $horaDB = ($hora === '') ? null : $hora;
+    $horaDB = ($hora === '') ? null : $hora;               // TIME acepta NULL
     $descDB = ($descripcion === '') ? null : $descripcion;
 
     try {
-      $sql = "INSERT INTO eventos (titulo, fecha, hora, categoria, descripcion)
+      $sql = "INSERT INTO eventos (titulo, fecha, hora, categoria_id, descripcion)
               VALUES (?, ?, ?, ?, ?)";
       $stmt = $mysqli->prepare($sql);
-      $stmt->bind_param("sssss", $titulo, $fecha, $horaDB, $categoria, $descDB);
+      $stmt->bind_param("sssis", $titulo, $fecha, $horaDB, $categoriaId, $descDB);
       $stmt->execute();
       $nuevoId = $stmt->insert_id;
       $stmt->close();
       $mysqli->close();
 
+      // ---------- Fase 7 · PRG ----------
       header('Location: index.php?ok=1');
       exit;
     } catch (mysqli_sql_exception $ex) {
@@ -68,23 +84,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   }
 }
+
+// ---------- Eventos ya guardados (para el calendario y la lista) ----------
 $eventosDB = [];
-if (file_exists(__DIR__ . '/conexion.php')) {
-  require_once 'conexion.php';
-  try {
-    $res = $mysqli->query("SELECT id, titulo, fecha, hora, categoria, descripcion FROM eventos ORDER BY fecha, hora LIMIT 500");
-    while ($r = $res->fetch_assoc()) {
-      $eventosDB[] = [
-        'id'        => (int)$r['id'],
-        'titulo'    => $r['titulo'],
-        'fecha'     => $r['fecha'],
-        'hora'      => $r['hora'] ? substr($r['hora'], 0, 5) : '',
-        'categoria' => $r['categoria'],
-        'notas'     => (string)$r['descripcion'],
-      ];
-    }
-  } catch (mysqli_sql_exception $ex) { }
-}
+try {
+  $res = $mysqli->query("SELECT id, titulo, fecha, hora, descripcion
+                         FROM eventos ORDER BY fecha, hora LIMIT 500");
+  while ($r = $res->fetch_assoc()) {
+    $eventosDB[] = [
+      'id'     => (int)$r['id'],
+      'titulo' => $r['titulo'],
+      'fecha'  => $r['fecha'],
+      'hora'   => $r['hora'] ? substr($r['hora'], 0, 5) : '',
+      'notas'  => (string)$r['descripcion'],
+    ];
+  }
+} catch (mysqli_sql_exception $ex) { /* la lista queda vacía */ }
+$mysqli->close();
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -92,6 +108,7 @@ if (file_exists(__DIR__ . '/conexion.php')) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Nuevo evento · AgendaWeb</title>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&family=Raleway:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,6 +123,7 @@ if (file_exists(__DIR__ . '/conexion.php')) {
   <link rel="stylesheet" href="css/estilos.css">
 </head>
 <body class="layout">
+
   <header class="site-header">
     <div class="contenedor site-header__inner">
       <a href="index.php" class="logo">Agenda<span>Web</span></a>
@@ -121,57 +139,73 @@ if (file_exists(__DIR__ . '/conexion.php')) {
       </div>
     </div>
   </header>
+
   <main class="contenedor">
     <section class="introduccion">
       <h1>Tu agenda, sin ruido</h1>
       <p>Elige un día en el calendario, registra tu evento y míralo ordenado por fecha.</p>
     </section>
+
     <div class="rejilla">
+
       <section class="tarjeta" aria-labelledby="titulo-form">
         <h2 id="titulo-form">Nuevo evento</h2>
+
         <?php if (isset($errores['general'])): ?>
           <div class="alert alert--error" role="alert"><?= e($errores['general']) ?></div>
         <?php elseif (!empty($errores)): ?>
           <div class="alert alert--error" role="alert">Revisa los campos marcados.</div>
         <?php endif; ?>
+
         <form method="post" action="" id="formulario">
+
           <div class="campo <?= isset($errores['titulo']) ? 'campo--error' : '' ?>">
             <label for="titulo">Título</label>
-            <input id="titulo" name="titulo" type="text" maxlength="120" placeholder="Ej. Cita con el dentista" value="<?= e($titulo) ?>" required>
+            <input id="titulo" name="titulo" type="text" maxlength="120"
+                   placeholder="Ej. Cita con el dentista"
+                   value="<?= e($titulo) ?>" required>
             <?php if (isset($errores['titulo'])): ?><p class="campo__error"><?= e($errores['titulo']) ?></p><?php endif; ?>
           </div>
-          <div class="campo <?= isset($errores['categoria']) ? 'campo--error' : '' ?>">
-            <label for="categoria">Categoría</label>
-            <select id="categoria" name="categoria" required>
-              <option value="">Elige una categoría…</option>
-              <?php foreach ($categoriasOK as $valor => $texto): ?>
-                <option value="<?= e($valor) ?>" <?= $categoria === $valor ? 'selected' : '' ?>><?= e($texto) ?></option>
+
+          <div class="campo <?= isset($errores['categoria_id']) ? 'campo--error' : '' ?>">
+            <label for="categoria_id">Categoría</label>
+            <select id="categoria_id" name="categoria_id" required>
+              <option value="">— Elige una —</option>
+              <?php foreach ($categorias as $cat): ?>
+                <option value="<?= (int) $cat['id'] ?>" <?= $categoriaId === (int) $cat['id'] ? 'selected' : '' ?>>
+                  <?= e($cat['nombre']) ?>
+                </option>
               <?php endforeach; ?>
             </select>
-            <?php if (isset($errores['categoria'])): ?><p class="campo__error"><?= e($errores['categoria']) ?></p><?php endif; ?>
+            <?php if (isset($errores['categoria_id'])): ?><p class="campo__error"><?= e($errores['categoria_id']) ?></p><?php endif; ?>
           </div>
+
           <div class="campo <?= isset($errores['fecha']) ? 'campo--error' : '' ?>">
             <label for="fecha">Fecha</label>
             <input id="fecha" name="fecha" type="date" min="<?= e($hoyServidor) ?>" value="<?= e($fecha) ?>" required>
             <?php if (isset($errores['fecha'])): ?><p class="campo__error"><?= e($errores['fecha']) ?></p><?php endif; ?>
           </div>
+
           <div class="campo <?= isset($errores['hora']) ? 'campo--error' : '' ?>">
             <label for="hora">Hora (opcional)</label>
             <input id="hora" name="hora" type="time" value="<?= e($hora) ?>">
             <?php if (isset($errores['hora'])): ?><p class="campo__error"><?= e($errores['hora']) ?></p><?php endif; ?>
           </div>
+
           <div class="campo <?= isset($errores['descripcion']) ? 'campo--error' : '' ?>">
             <label for="descripcion">Descripción (opcional)</label>
             <textarea id="descripcion" name="descripcion" maxlength="500"
                       placeholder="Lugar, recordatorios…"><?= e($descripcion) ?></textarea>
             <?php if (isset($errores['descripcion'])): ?><p class="campo__error"><?= e($errores['descripcion']) ?></p><?php endif; ?>
           </div>
+
           <div class="acciones">
             <button class="boton boton--bloque" type="submit">Guardar evento</button>
             <a class="boton boton--bloque boton--secundario" href="index.php">Cancelar</a>
           </div>
         </form>
       </section>
+
       <div class="columna">
         <section class="tarjeta" aria-label="Calendario">
           <div class="cal__cabecera">
@@ -184,6 +218,7 @@ if (file_exists(__DIR__ . '/conexion.php')) {
           </div>
           <div class="cal__grid" id="calGrid"></div>
         </section>
+
         <section class="tarjeta" aria-labelledby="titulo-lista">
           <div class="lista__cabecera">
             <h2 id="titulo-lista">Próximos eventos</h2>
@@ -192,20 +227,27 @@ if (file_exists(__DIR__ . '/conexion.php')) {
           <div id="lista" aria-live="polite"></div>
         </section>
       </div>
+
     </div>
   </main>
+
   <footer class="site-footer">
     AgendaWeb · Diego Plascencia Camarena · 2026
   </footer>
+
   <script>
+    // Eventos guardados en MySQL (solo lectura: el calendario y la lista los muestran)
     const eventos = <?= json_encode($eventosDB, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+
     const $ = id => document.getElementById(id);
     const pad = n => String(n).padStart(2, "0");
     const aTexto = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;
+
     const hoy = new Date();
     const hoyTxt = aTexto(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
     let vista = { y: hoy.getFullYear(), m: hoy.getMonth() };
     let seleccionado = null;
+
     function el(tag, clase, texto) {
       const n = document.createElement(tag);
       if (clase) n.className = clase;
@@ -213,6 +255,7 @@ if (file_exists(__DIR__ . '/conexion.php')) {
       return n;
     }
     const nombreDia = f => new Date(f + "T00:00:00").toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
     function actualizarBotonTema() {
       const oscuro = document.documentElement.dataset.theme === "dark";
       $("btnTema").setAttribute("aria-label", oscuro ? "Cambiar a modo claro" : "Cambiar a modo oscuro");
@@ -223,15 +266,20 @@ if (file_exists(__DIR__ . '/conexion.php')) {
       try { localStorage.setItem("agendaweb:tema", nuevo); } catch (e) {}
       actualizarBotonTema();
     });
+
     function pintarCalendario() {
       const grid = $("calGrid");
       grid.replaceChildren();
       $("calMes").textContent = new Date(vista.y, vista.m, 1).toLocaleDateString("es-MX", { month: "long", year: "numeric" });
+
       ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].forEach(d => grid.append(el("div", "cal__dia-sem", d)));
+
       const primero = (new Date(vista.y, vista.m, 1).getDay() + 6) % 7;
       const total = new Date(vista.y, vista.m + 1, 0).getDate();
       const conEvento = new Set(eventos.map(e => e.fecha));
+
       for (let i = 0; i < primero; i++) grid.append(el("div", "cal__vacio"));
+
       for (let d = 1; d <= total; d++) {
         const f = aTexto(vista.y, vista.m, d);
         let clase = "cal__celda";
@@ -239,7 +287,7 @@ if (file_exists(__DIR__ . '/conexion.php')) {
         if (conEvento.has(f)) clase += " cal__celda--evento";
         const b = el("button", clase, String(d));
         b.type = "button";
-        if (f < hoyTxt) b.disabled = true;
+        if (f < hoyTxt) b.disabled = true;   // no se pueden elegir días pasados
         b.setAttribute("aria-pressed", f === seleccionado ? "true" : "false");
         b.setAttribute("aria-label", nombreDia(f) + (conEvento.has(f) ? ", con eventos" : ""));
         b.addEventListener("click", () => {
@@ -257,21 +305,26 @@ if (file_exists(__DIR__ . '/conexion.php')) {
       seleccionado = hoyTxt; $("fecha").value = hoyTxt; pintar();
     });
     $("verTodos").addEventListener("click", () => { seleccionado = null; pintar(); });
+
     function pintarLista() {
       const lista = $("lista");
       lista.replaceChildren();
       $("titulo-lista").textContent = seleccionado ? "Eventos del día" : "Próximos eventos";
       $("verTodos").hidden = !seleccionado;
+
       let visibles = seleccionado ? eventos.filter(e => e.fecha === seleccionado) : eventos.filter(e => e.fecha >= hoyTxt);
       visibles = [...visibles].sort((a, b) => (a.fecha + (a.hora || "")).localeCompare(b.fecha + (b.hora || "")));
+
       if (visibles.length === 0) {
         const v = el("div", "vacio");
         v.append(el("strong", "", seleccionado ? "Sin eventos este día" : "Aún no tienes eventos próximos"), seleccionado ? "Agrega uno con el formulario." : "Agrega el primero con el formulario.");
         lista.append(v);
         return;
       }
+
       const porDia = {};
       visibles.forEach(ev => (porDia[ev.fecha] ||= []).push(ev));
+
       Object.keys(porDia).forEach(f => {
         const dia = el("div", "dia");
         dia.append(el("h3", "", nombreDia(f)));
@@ -287,21 +340,26 @@ if (file_exists(__DIR__ . '/conexion.php')) {
         lista.append(dia);
       });
     }
+
     function pintar() { pintarCalendario(); pintarLista(); }
+
+    // ---- Restricción: no permitir fecha ni hora anteriores a este momento ----
     function ajustarMinimos() {
       const ahora = new Date();
       const hoyLocal = aTexto(ahora.getFullYear(), ahora.getMonth(), ahora.getDate());
       const horaLocal = pad(ahora.getHours()) + ":" + pad(ahora.getMinutes());
       $("fecha").min = hoyLocal;
       if ($("fecha").value === hoyLocal) {
-        $("hora").min = horaLocal;
+        $("hora").min = horaLocal;                       // hoy: desde la hora actual
       } else {
-        $("hora").removeAttribute("min");
+        $("hora").removeAttribute("min");                // otro día: cualquier hora
       }
     }
     $("fecha").addEventListener("change", ajustarMinimos);
     $("hora").addEventListener("focus", ajustarMinimos);
-    setInterval(ajustarMinimos, 30000);
+    setInterval(ajustarMinimos, 30000);   // mantiene vigente el mínimo mientras pasa el tiempo
+
+    // Si el formulario volvió con errores, conserva la fecha escrita; si no, usa hoy
     $("fecha").value = <?= json_encode($fecha) ?> || hoyTxt;
     ajustarMinimos();
     actualizarBotonTema();

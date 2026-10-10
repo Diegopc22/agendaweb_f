@@ -1,42 +1,40 @@
 <?php
+// ============================================================
+// index.php · tablero de eventos (P4: arreglos y funciones)
+// ============================================================
+
+// ---------- Funciones de ayuda ----------
+
+// Limpia un texto antes de mostrarlo (evita XSS)
 function e($texto) { return htmlspecialchars((string)$texto, ENT_QUOTES, 'UTF-8'); }
 
+// '2026-10-08'  →  '08/10/2026'
 function formatearFecha(string $fecha): string
 {
     return date('d/m/Y', strtotime($fecha));
 }
 
-function nombreCategoria(string $clave): string
-{
-    $nombres = [
-        'trabajo'  => 'Trabajo',
-        'personal' => 'Personal',
-        'estudio'  => 'Estudio',
-        'ocio'     => 'Ocio / Deporte',
-    ];
-    return $nombres[$clave] ?? $clave;
-}
-
+// Recibe UN evento (arreglo asociativo) y devuelve el HTML de su tarjeta
 function mostrarEvento(array $ev): string
 {
     $html  = '<article class="card">';
-    $html .= '<span class="card__badge">' . e(nombreCategoria($ev['categoria'])) . '</span>';
+    $html .= '<span class="card__badge">' . e($ev['categoria']) . '</span>';
     $html .= '<h2 class="card__title">' . e($ev['titulo']) . '</h2>';
 
     $cuando   = formatearFecha($ev['fecha']);
     $datetime = $ev['fecha'];
-    if ($ev['hora']) {                                   
-        $hora      = substr($ev['hora'], 0, 5);          
+    if ($ev['hora']) {                                   // la hora es opcional
+        $hora      = substr($ev['hora'], 0, 5);          // '10:30:00' → '10:30'
         $cuando   .= ' · ' . $hora;
         $datetime .= 'T' . $hora;
     }
     $html .= '<p class="card__meta"><time datetime="' . e($datetime) . '">' . e($cuando) . '</time></p>';
 
-    if ($ev['descripcion']) {                            
+    if ($ev['descripcion']) {                            // la descripción también
         $html .= '<p class="card__text">' . e($ev['descripcion']) . '</p>';
     }
 
-    $id = (int) $ev['id'];                               
+    $id = (int) $ev['id'];                               // el id SIEMPRE como número
     $html .= '<div class="card__actions">'
            . '<a href="editar.php?id=' . $id . '" class="btn-secondary btn-sm">Editar</a>'
            . '<form method="post" action="borrar.php" class="form-inline" '
@@ -48,21 +46,36 @@ function mostrarEvento(array $ev): string
     return $html . '</article>';
 }
 
+// ---------- Eventos desde MySQL ----------
 require_once 'conexion.php';
 try {
+  // JOIN: une cada evento con su categoría para traer el NOMBRE
   $resultado = $mysqli->query(
-    'SELECT id, titulo, fecha, hora, categoria, descripcion
-       FROM eventos
-      ORDER BY fecha, hora'
+    'SELECT e.id, e.titulo, e.fecha, e.hora, e.descripcion,
+            c.nombre AS categoria
+       FROM eventos e
+       JOIN categorias c ON c.id = e.categoria_id
+      ORDER BY e.fecha, e.hora'
   );
-  $eventos = $resultado->fetch_all(MYSQLI_ASSOC);
+  $eventos = $resultado->fetch_all(MYSQLI_ASSOC);   // arreglo de arreglos asociativos
+
+  // GROUP BY: cuántos eventos tiene cada categoría (LEFT JOIN: incluye las de 0)
+  $resumen = $mysqli->query(
+    'SELECT c.nombre, COUNT(e.id) AS total
+       FROM categorias c
+       LEFT JOIN eventos e ON e.categoria_id = c.id
+      GROUP BY c.id, c.nombre
+      ORDER BY c.nombre'
+  )->fetch_all(MYSQLI_ASSOC);
 } catch (mysqli_sql_exception $ex) {
   $eventos = [];
+  $resumen = [];
 }
 $mysqli->close();
 
 $total = count($eventos);
 
+// ---------- Avisos según la dirección ----------
 // ?ok=1 (guardado), ?editado=1, ?borrado=1, ?error=1
 $aviso = null; $avisoError = false;
 if (($_GET['ok'] ?? '') === '1')           $aviso = 'Evento guardado.';
@@ -110,6 +123,7 @@ elseif (($_GET['error'] ?? '') === '1')  { $aviso = 'No se pudo completar la acc
 
   <main class="contenedor">
 
+    <!-- El aviso solo aparece si la URL trae ?ok=1, ?editado=1, ?borrado=1 o ?error=1 -->
     <?php if ($aviso): ?>
     <div class="alert <?= $avisoError ? 'alert--error' : 'alert--ok' ?>" role="<?= $avisoError ? 'alert' : 'status' ?>"><?= $avisoError ? '' : '&#9989; ' ?><?= e($aviso) ?></div>
     <?php endif; ?>
@@ -122,6 +136,14 @@ elseif (($_GET['error'] ?? '') === '1')  { $aviso = 'No se pudo completar la acc
       <a href="registrar.php" class="btn-primary">+ Nuevo evento</a>
     </div>
 
+    <!-- Resumen: cuántos eventos hay por categoría -->
+    <p class="resumen">
+      <?php foreach ($resumen as $r): ?>
+        <span class="card__badge"><?= e($r['nombre']) ?> · <?= (int) $r['total'] ?></span>
+      <?php endforeach; ?>
+    </p>
+
+    <!-- Lista O estado vacío, nunca los dos -->
     <?php if (empty($eventos)): ?>
     <div class="empty-state">
       <p>Aún no tienes eventos registrados.</p>

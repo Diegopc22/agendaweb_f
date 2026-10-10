@@ -1,13 +1,18 @@
 <?php
+// ============================================================
+// editar.php · formulario prellenado + UPDATE
+// GET  ?id=N → carga el evento y muestra el formulario
+// POST       → valida, actualiza y redirige a index.php?editado=1
+// ============================================================
 function e($texto) { return htmlspecialchars((string)$texto, ENT_QUOTES, 'UTF-8'); }
 
 date_default_timezone_set('America/Mexico_City');
 $hoyServidor   = date('Y-m-d');
 $ahoraServidor = date('H:i');
 
-$categoriasOK = ['trabajo' => 'Trabajo', 'personal' => 'Personal', 'estudio' => 'Estudio', 'ocio' => 'Ocio'];
 $errores = [];
 
+// ---------- 1. Identificar el evento ----------
 $id = filter_var($_SERVER['REQUEST_METHOD'] === 'POST' ? ($_POST['id'] ?? '') : ($_GET['id'] ?? ''), FILTER_VALIDATE_INT);
 if ($id === false || $id < 1) {
   header('Location: index.php?error=1');
@@ -16,30 +21,38 @@ if ($id === false || $id < 1) {
 
 require_once 'conexion.php';
 
-$stmt = $mysqli->prepare("SELECT titulo, fecha, hora, categoria, descripcion FROM eventos WHERE id = ?");
+// Categorías desde la base de datos (y lista blanca de ids válidos)
+$resultado  = $mysqli->query('SELECT id, nombre FROM categorias ORDER BY nombre');
+$categorias = $resultado->fetch_all(MYSQLI_ASSOC);
+$idsValidos = array_map('intval', array_column($categorias, 'id'));
+
+// ---------- 2. Cargar el evento original ----------
+$stmt = $mysqli->prepare("SELECT titulo, fecha, hora, categoria_id, descripcion FROM eventos WHERE id = ?");
 $stmt->bind_param("i", $id);
 $stmt->execute();
 $orig = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
-if (!$orig) {
+if (!$orig) {                       // el evento no existe (o ya se borró)
   header('Location: index.php?error=1');
   exit;
 }
 $fechaOrig = (string)$orig['fecha'];
 $horaOrig  = $orig['hora'] ? substr($orig['hora'], 0, 5) : '';
 
+// Valores que se muestran: los originales o, si hubo POST, lo escrito
 $titulo      = $orig['titulo'];
 $fecha       = $fechaOrig;
 $hora        = $horaOrig;
-$categoria   = $orig['categoria'];
+$categoriaId  = (int) $orig['categoria_id'];
 $descripcion = (string)$orig['descripcion'];
 
+// ---------- 3. Recibir, validar y guardar ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $titulo      = trim($_POST['titulo']      ?? '');
   $fecha       = trim($_POST['fecha']       ?? '');
   $hora        = trim($_POST['hora']        ?? '');
-  $categoria   = trim($_POST['categoria']   ?? '');
+  $categoriaId = (int) ($_POST['categoria_id'] ?? 0);
   $descripcion = trim($_POST['descripcion'] ?? '');
 
   if ($titulo === '')
@@ -53,6 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $f = DateTime::createFromFormat('Y-m-d', $fecha);
     if (!$f || $f->format('Y-m-d') !== $fecha)
       $errores['fecha'] = 'La fecha no es válida.';
+    // Solo se exige "no pasada" si el usuario CAMBIÓ la fecha
     elseif ($fecha !== $fechaOrig && $fecha < $hoyServidor)
       $errores['fecha'] = 'La fecha no puede ser anterior a hoy.';
   }
@@ -61,12 +75,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $h = DateTime::createFromFormat('H:i', $hora);
     if (!$h || $h->format('H:i') !== $hora)
       $errores['hora'] = 'La hora no es válida.';
+    // Solo se exige si el usuario CAMBIÓ la fecha u hora y el día es hoy
     elseif (($fecha !== $fechaOrig || $hora !== $horaOrig) && $fecha === $hoyServidor && $hora < $ahoraServidor)
       $errores['hora'] = 'La hora ya pasó. Elige una a partir de las ' . $ahoraServidor . '.';
   }
 
-  if (!array_key_exists($categoria, $categoriasOK))
-    $errores['categoria'] = 'Elige una categoría válida.';
+  if (!in_array($categoriaId, $idsValidos, true))
+    $errores['categoria_id'] = 'Elige una categoría válida.';
 
   if (mb_strlen($descripcion) > 500)
     $errores['descripcion'] = 'Máximo 500 caracteres.';
@@ -76,9 +91,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $descDB = ($descripcion === '') ? null : $descripcion;
     try {
       $stmt = $mysqli->prepare("UPDATE eventos
-                                SET titulo = ?, fecha = ?, hora = ?, categoria = ?, descripcion = ?
+                                SET titulo = ?, fecha = ?, hora = ?, categoria_id = ?, descripcion = ?
                                 WHERE id = ?");
-      $stmt->bind_param("sssssi", $titulo, $fecha, $horaDB, $categoria, $descDB, $id);
+      $stmt->bind_param("sssisi", $titulo, $fecha, $horaDB, $categoriaId, $descDB, $id);
       $stmt->execute();
       $stmt->close();
       $mysqli->close();
@@ -90,6 +105,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   }
 }
+
+// La fecha mínima del selector deja conservar una fecha original ya pasada
 $fechaMin = ($fechaOrig !== '' && $fechaOrig < $hoyServidor) ? $fechaOrig : $hoyServidor;
 ?>
 <!DOCTYPE html>
@@ -156,16 +173,18 @@ $fechaMin = ($fechaOrig !== '' && $fechaOrig < $hoyServidor) ? $fechaOrig : $hoy
           <?php if (isset($errores['titulo'])): ?><p class="campo__error"><?= e($errores['titulo']) ?></p><?php endif; ?>
         </div>
 
-        <div class="campo <?= isset($errores['categoria']) ? 'campo--error' : '' ?>">
-          <label for="categoria">Categoría</label>
-          <select id="categoria" name="categoria" required>
-            <option value="">Elige una categoría…</option>
-            <?php foreach ($categoriasOK as $valor => $texto): ?>
-              <option value="<?= e($valor) ?>" <?= $categoria === $valor ? 'selected' : '' ?>><?= e($texto) ?></option>
-            <?php endforeach; ?>
-          </select>
-          <?php if (isset($errores['categoria'])): ?><p class="campo__error"><?= e($errores['categoria']) ?></p><?php endif; ?>
-        </div>
+        <div class="campo <?= isset($errores['categoria_id']) ? 'campo--error' : '' ?>">
+            <label for="categoria_id">Categoría</label>
+            <select id="categoria_id" name="categoria_id" required>
+              <option value="">— Elige una —</option>
+              <?php foreach ($categorias as $cat): ?>
+                <option value="<?= (int) $cat['id'] ?>" <?= $categoriaId === (int) $cat['id'] ? 'selected' : '' ?>>
+                  <?= e($cat['nombre']) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+            <?php if (isset($errores['categoria_id'])): ?><p class="campo__error"><?= e($errores['categoria_id']) ?></p><?php endif; ?>
+          </div>
 
         <div class="campo <?= isset($errores['fecha']) ? 'campo--error' : '' ?>">
           <label for="fecha">Fecha</label>
