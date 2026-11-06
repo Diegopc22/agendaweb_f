@@ -48,18 +48,39 @@ function mostrarEvento(array $ev): string
 }
 
 // ---------- Eventos desde MySQL (solo los del usuario) ----------
+// ---------- Búsqueda (P9) ----------
+$buscar          = trim($_GET['buscar'] ?? '');          // texto a buscar en el título
+$categoriaFiltro = (int) ($_GET['categoria'] ?? 0);      // 0 = todas las categorías
+$hayFiltro       = ($buscar !== '' || $categoriaFiltro > 0);
+
 require_once 'conexion.php';
 try {
+  // Siempre solo los eventos del usuario; los filtros se agregan SOLO si hay búsqueda
+  $sql   = 'SELECT e.id, e.titulo, e.fecha, e.hora, e.descripcion,
+                   c.nombre AS categoria
+              FROM eventos e
+              JOIN categorias c ON c.id = e.categoria_id
+             WHERE e.usuario_id = ?';
+  $tipos = 'i';
+  $datos = [$usuarioId];
+
+  if ($buscar !== '') {
+    $sql   .= ' AND e.titulo LIKE ?';
+    $tipos .= 's';
+    // El % va en la VARIABLE, no pegado en el SQL. addcslashes() hace que un % o _
+    // escrito por el usuario se busque como letra normal y no como comodín.
+    $datos[] = '%' . addcslashes($buscar, '%_\\') . '%';
+  }
+  if ($categoriaFiltro > 0) {
+    $sql   .= ' AND e.categoria_id = ?';
+    $tipos .= 'i';
+    $datos[] = $categoriaFiltro;
+  }
+  $sql .= ' ORDER BY e.fecha, e.hora';
+
   // JOIN: une cada evento con su categoría para traer el NOMBRE
-  $stmt = $mysqli->prepare(
-    'SELECT e.id, e.titulo, e.fecha, e.hora, e.descripcion,
-            c.nombre AS categoria
-       FROM eventos e
-       JOIN categorias c ON c.id = e.categoria_id
-      WHERE e.usuario_id = ?
-      ORDER BY e.fecha, e.hora'
-  );
-  $stmt->bind_param('i', $usuarioId);
+  $stmt = $mysqli->prepare($sql);
+  $stmt->bind_param($tipos, ...$datos);
   $stmt->execute();
   $eventos = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);   // arreglo de arreglos asociativos
   $stmt->close();
@@ -67,7 +88,7 @@ try {
   // GROUP BY: cuántos eventos tiene cada categoría (LEFT JOIN: incluye las de 0)
   // El filtro va en el ON para que también aparezcan las categorías con 0.
   $stmt = $mysqli->prepare(
-    'SELECT c.nombre, COUNT(e.id) AS total
+    'SELECT c.id, c.nombre, COUNT(e.id) AS total
        FROM categorias c
        LEFT JOIN eventos e ON e.categoria_id = c.id AND e.usuario_id = ?
       GROUP BY c.id, c.nombre
@@ -143,7 +164,13 @@ elseif (($_GET['error'] ?? '') === '1')  { $aviso = 'No se pudo completar la acc
     <div class="page__header">
       <div>
         <h1 class="page__title">Mis eventos</h1>
-        <p class="page__subtitle"><?= $total ?> <?= $total === 1 ? 'evento registrado' : 'eventos registrados' ?></p>
+        <p class="page__subtitle">
+          <?php if ($hayFiltro): ?>
+            <?= $total ?> <?= $total === 1 ? 'resultado' : 'resultados' ?>
+          <?php else: ?>
+            <?= $total ?> <?= $total === 1 ? 'evento registrado' : 'eventos registrados' ?>
+          <?php endif; ?>
+        </p>
       </div>
       <a href="registrar.php" class="btn-primary">+ Nuevo evento</a>
     </div>
@@ -155,11 +182,33 @@ elseif (($_GET['error'] ?? '') === '1')  { $aviso = 'No se pudo completar la acc
       <?php endforeach; ?>
     </p>
 
+    <!-- Buscador: method="get" manda el texto a esta misma página -->
+    <form method="get" action="index.php" class="buscador" role="search">
+      <input type="search" name="buscar" maxlength="120"
+             placeholder="Buscar evento por título..."
+             value="<?= e($buscar) ?>" aria-label="Buscar evento por título">
+      <select name="categoria" aria-label="Filtrar por categoría">
+        <option value="0">Todas las categorías</option>
+        <?php foreach ($resumen as $r): ?>
+          <option value="<?= (int) $r['id'] ?>" <?= $categoriaFiltro === (int) $r['id'] ? 'selected' : '' ?>><?= e($r['nombre']) ?></option>
+        <?php endforeach; ?>
+      </select>
+      <button type="submit" class="btn-primary btn-sm">Buscar</button>
+      <?php if ($hayFiltro): ?>
+        <a href="index.php" class="btn-secondary btn-sm">Limpiar</a>
+      <?php endif; ?>
+    </form>
+
     <!-- Lista O estado vacío, nunca los dos -->
     <?php if (empty($eventos)): ?>
     <div class="empty-state">
-      <p>Aún no tienes eventos registrados.</p>
-      <a href="registrar.php" class="btn-primary">Registrar el primero</a>
+      <?php if ($hayFiltro): ?>
+        <p>Sin resultados para tu búsqueda.</p>
+        <a href="index.php" class="btn-secondary">Ver todos mis eventos</a>
+      <?php else: ?>
+        <p>Aún no tienes eventos registrados.</p>
+        <a href="registrar.php" class="btn-primary">Registrar el primero</a>
+      <?php endif; ?>
     </div>
     <?php else: ?>
     <section class="card-list" aria-label="Lista de eventos">
