@@ -4,6 +4,8 @@
 // GET  ?id=N → carga el evento y muestra el formulario
 // POST       → valida, actualiza y redirige a index.php?editado=1
 // ============================================================
+require __DIR__ . '/partes/sesion.php';
+
 function e($texto) { return htmlspecialchars((string)$texto, ENT_QUOTES, 'UTF-8'); }
 
 date_default_timezone_set('America/Mexico_City');
@@ -27,8 +29,8 @@ $categorias = $resultado->fetch_all(MYSQLI_ASSOC);
 $idsValidos = array_map('intval', array_column($categorias, 'id'));
 
 // ---------- 2. Cargar el evento original ----------
-$stmt = $mysqli->prepare("SELECT titulo, fecha, hora, categoria_id, descripcion FROM eventos WHERE id = ?");
-$stmt->bind_param("i", $id);
+$stmt = $mysqli->prepare("SELECT titulo, fecha, hora, categoria_id, descripcion FROM eventos WHERE id = ? AND usuario_id = ?");
+$stmt->bind_param("ii", $id, $usuarioId);
 $stmt->execute();
 $orig = $stmt->get_result()->fetch_assoc();
 $stmt->close();
@@ -92,8 +94,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
       $stmt = $mysqli->prepare("UPDATE eventos
                                 SET titulo = ?, fecha = ?, hora = ?, categoria_id = ?, descripcion = ?
-                                WHERE id = ?");
-      $stmt->bind_param("sssisi", $titulo, $fecha, $horaDB, $categoriaId, $descDB, $id);
+                                WHERE id = ? AND usuario_id = ?");
+      $stmt->bind_param("sssisii", $titulo, $fecha, $horaDB, $categoriaId, $descDB, $id, $usuarioId);
       $stmt->execute();
       $stmt->close();
       $mysqli->close();

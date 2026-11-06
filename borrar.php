@@ -1,4 +1,6 @@
 <?php
+require __DIR__ . '/partes/sesion.php';
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
   header('Location: index.php');
   exit;
@@ -13,8 +15,8 @@ if ($id === false || $id < 1) {
 require_once 'conexion.php';
 
 try {
-  $stmt = $mysqli->prepare("DELETE FROM eventos WHERE id = ?");
-  $stmt->bind_param("i", $id);
+  $stmt = $mysqli->prepare("DELETE FROM eventos WHERE id = ? AND usuario_id = ?");
+  $stmt->bind_param("ii", $id, $usuarioId);
   $stmt->execute();
   $stmt->close();
   $mysqli->close();

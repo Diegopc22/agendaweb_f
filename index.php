@@ -2,6 +2,7 @@
 // ============================================================
 // index.php · tablero de eventos (P4: arreglos y funciones)
 // ============================================================
+require __DIR__ . '/partes/sesion.php';
 
 // ---------- Funciones de ayuda ----------
 
@@ -46,27 +47,36 @@ function mostrarEvento(array $ev): string
     return $html . '</article>';
 }
 
-// ---------- Eventos desde MySQL ----------
+// ---------- Eventos desde MySQL (solo los del usuario) ----------
 require_once 'conexion.php';
 try {
   // JOIN: une cada evento con su categoría para traer el NOMBRE
-  $resultado = $mysqli->query(
+  $stmt = $mysqli->prepare(
     'SELECT e.id, e.titulo, e.fecha, e.hora, e.descripcion,
             c.nombre AS categoria
        FROM eventos e
        JOIN categorias c ON c.id = e.categoria_id
+      WHERE e.usuario_id = ?
       ORDER BY e.fecha, e.hora'
   );
-  $eventos = $resultado->fetch_all(MYSQLI_ASSOC);   // arreglo de arreglos asociativos
+  $stmt->bind_param('i', $usuarioId);
+  $stmt->execute();
+  $eventos = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);   // arreglo de arreglos asociativos
+  $stmt->close();
 
   // GROUP BY: cuántos eventos tiene cada categoría (LEFT JOIN: incluye las de 0)
-  $resumen = $mysqli->query(
+  // El filtro va en el ON para que también aparezcan las categorías con 0.
+  $stmt = $mysqli->prepare(
     'SELECT c.nombre, COUNT(e.id) AS total
        FROM categorias c
-       LEFT JOIN eventos e ON e.categoria_id = c.id
+       LEFT JOIN eventos e ON e.categoria_id = c.id AND e.usuario_id = ?
       GROUP BY c.id, c.nombre
       ORDER BY c.nombre'
-  )->fetch_all(MYSQLI_ASSOC);
+  );
+  $stmt->bind_param('i', $usuarioId);
+  $stmt->execute();
+  $resumen = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+  $stmt->close();
 } catch (mysqli_sql_exception $ex) {
   $eventos = [];
   $resumen = [];
@@ -110,8 +120,10 @@ elseif (($_GET['error'] ?? '') === '1')  { $aviso = 'No se pudo completar la acc
       <a href="index.php" class="logo">Agenda<span>Web</span></a>
       <div class="header__right">
         <nav class="nav">
+          <span class="nav__link">Hola, <?= e($usuarioNombre) ?></span>
           <a href="index.php" class="nav__link is-active">Mis eventos</a>
           <a href="registrar.php" class="nav__link">Nuevo evento</a>
+          <a href="logout.php" class="nav__link">Salir</a>
         </nav>
         <button class="btn-tema" id="btnTema" type="button" aria-label="Cambiar a modo oscuro" title="Cambiar tema">
           <svg class="icono-luna" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>

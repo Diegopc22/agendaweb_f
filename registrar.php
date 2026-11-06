@@ -4,6 +4,7 @@
 // Flujo: recibir (POST) → validar → guardar (MySQL) → redirigir (PRG)
 // IMPORTANTE: no imprimir nada antes de header().
 // ============================================================
+require __DIR__ . '/partes/sesion.php';
 
 function e($texto) { return htmlspecialchars((string)$texto, ENT_QUOTES, 'UTF-8'); }
 
@@ -67,10 +68,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $descDB = ($descripcion === '') ? null : $descripcion;
 
     try {
-      $sql = "INSERT INTO eventos (titulo, fecha, hora, categoria_id, descripcion)
-              VALUES (?, ?, ?, ?, ?)";
+      $sql = "INSERT INTO eventos (usuario_id, titulo, fecha, hora, categoria_id, descripcion)
+              VALUES (?, ?, ?, ?, ?, ?)";
       $stmt = $mysqli->prepare($sql);
-      $stmt->bind_param("sssis", $titulo, $fecha, $horaDB, $categoriaId, $descDB);
+      $stmt->bind_param("isssis", $usuarioId, $titulo, $fecha, $horaDB, $categoriaId, $descDB);
       $stmt->execute();
       $nuevoId = $stmt->insert_id;
       $stmt->close();
@@ -88,8 +89,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // ---------- Eventos ya guardados (para el calendario y la lista) ----------
 $eventosDB = [];
 try {
-  $res = $mysqli->query("SELECT id, titulo, fecha, hora, descripcion
-                         FROM eventos ORDER BY fecha, hora LIMIT 500");
+  // Solo los eventos DEL USUARIO (autorización)
+  $stmt = $mysqli->prepare("SELECT id, titulo, fecha, hora, descripcion
+                            FROM eventos WHERE usuario_id = ? ORDER BY fecha, hora LIMIT 500");
+  $stmt->bind_param('i', $usuarioId);
+  $stmt->execute();
+  $res = $stmt->get_result();
   while ($r = $res->fetch_assoc()) {
     $eventosDB[] = [
       'id'     => (int)$r['id'],
